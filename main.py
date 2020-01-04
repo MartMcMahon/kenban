@@ -1,69 +1,91 @@
-# import threading
+# from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 import json
-import os
-import requests
-import shutil
-from selenium import webdriver
+
+# import os
+# import shutil
 import sys
+import requests
+import termios
 import time
-from dotenv import load_dotenv
+import tty
+from auth import Auth
+from ui import UI
 
-load_dotenv()
+# Disable line buffering. Thanks stackoverflow
+# https://stackoverflow.com/questions/37726138/disable-buffering-of-sys-stdin-in-python-3
+tty.setcbreak(sys.stdin.fileno(), termios.TCSANOW)
 
-terminal_size = shutil.get_terminal_size()
-print(terminal_size)
-
-
-CLIENT_ID = os.getenv("CLIENT_ID")
-CLIENT_SECRET = os.getenv("CLIENT_SECRET")
-REDIRECT_URI = os.getenv("REDIRECT_URI")
-USERNAME = os.getenv("USERNAME")
-PASSWORD = os.getenv("PASSWORD")
-auth_url = "https://accounts.spotify.com/authorize"
-response_type = "code"
-state = "itme"
-
-url = f"{auth_url}?client_id={CLIENT_ID}&response_type={response_type}&redirect_uri={REDIRECT_URI}&state={state}"
+state = {"mode": "normal", "running": True}
+_ui = UI(state)
+_auth = Auth(state)
 
 
-options = webdriver.ChromeOptions()
-browser = webdriver.Chrome(executable_path="./chromedriver", options=options)
-browser.get(url)
+def start():
+    eggs = ThreadPoolExecutor()
+    listener = eggs.submit(input_listener)
+    playing = eggs.submit(get_currently_playing)
 
-user_input = browser.find_element_by_id("login-username")
-user_input.clear()
-user_input.send_keys(USERNAME)
-password_input = browser.find_element_by_id("login-password")
-password_input.clear()
-password_input.send_keys(PASSWORD)
-login_button = browser.find_element_by_id("login-button")
-login_button.click()
+    (state["artist"], state["song"]) = playing.result()
+
+    # main loop. quit on 'q'
+    while listener.running():
+        eggs.submit(_ui.write_frame)
+        time.sleep(0.2)
+    eggs.shutdown(wait=False)
 
 
-auth_accept_button = False
-timer = 0
-while timer < 100 and not auth_accept_button:
-    try:
-        # auth_accept_button = browser.find_element_by_css_selector("#auth-accept")
-        auth_accept_button = browser.find_element_by_id("auth-accept")
-    except:
-        sys.stdout.write("\nwaiting for auth button")
-        sys.stdout.flush()
-        time.sleep(0.1)
-        timer += 1
+def input_listener():
+    while True:
+        ki = sys.stdin.read(1)
+        sys.stdin.flush()
+        if ki == "i":
+            print("input mode")
+            state["mode"] = "insert"
+        elif ki == "h":
+            _ui.move_cursor(1)
+        elif ki == "j":
+            _ui.move_selected_line(2)
+        elif ki == "k":
+            _ui.move_selected_line(3)
+        elif ki == "l":
+            _ui.move_cursor(4)
+        elif ki == "\x1b":
+            print("escape")
+            state["mode"] = "normal"
+        elif ki == "q":
+            state["running"] = False
+            break
+        state["last_input"] = ki
+        state["needs_update"] = True
 
-auth_accept_button.click()
 
-tok_obj = json.loads(browser.find_element_by_tag_name("pre").text)
-res = requests.get(
-    "https://api.spotify.com/v1/me",
-    headers={"Authorization": f"{tok_obj['token_type']} {tok_obj['access_token']}"},
-)
-print(res.json())
-browser.quit()
+def make_api_call():
+    pass
 
-while True:
-    sys.stdout.write("\r" + time.ctime())
-    sys.stdout.write(f"\n your token is: {tok_obj['access_token']}")
-    sys.stdout.flush()
-    time.sleep(1)
+
+def get_currently_playing():
+    tok_obj = _auth.creds
+    endpoint = "/v1/me/player/currently-playing"
+    # r = requests.get(
+    #     f"https://api.spotify.com{endpoint}",
+    #     headers={"Authorization": f"{tok_obj['token_type']} {tok_obj['access_token']}"},
+    # )
+    # j = json.loads(r.text)
+
+    # ### read from file for testing
+    with open("currently_playing.json", "r") as f:
+        j = json.load(f)
+    # ### <<
+
+    artist = j["item"]["artists"][0]["name"]
+    song = j["item"]["name"]
+
+    state["artist"] = artist
+    state["song"] = song
+
+    return (artist, song)
+
+
+if __name__ == "__main__":
+    start()
