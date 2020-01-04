@@ -1,3 +1,6 @@
+# pychache
+__pycache__/
+
 # env things
 .env
 bin/
