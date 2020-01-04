@@ -40,18 +40,16 @@ def input_listener():
         ki = sys.stdin.read(1)
         sys.stdin.flush()
         if ki == "i":
-            print("input mode")
             state["mode"] = "insert"
-        elif ki == "h":
-            _ui.move_cursor(1)
+        # elif ki == "h":
+        #     _ui.move_cursor(1)
         elif ki == "j":
             _ui.move_selected_line(2)
         elif ki == "k":
             _ui.move_selected_line(3)
-        elif ki == "l":
-            _ui.move_cursor(4)
+        # elif ki == "l":
+        #     _ui.move_cursor(4)
         elif ki == "\x1b":
-            print("escape")
             state["mode"] = "normal"
         elif ki == "q":
             state["running"] = False
